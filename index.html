@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js HDRI Fix</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/RGBELoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three/examples/js/geometries/TextGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/FontLoader.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+        #playButton {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: 0.3s ease;
+        }
+        #playButton:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        #playButton:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+        .hidden {
+            opacity: 0%;
+        }
+    </style>
+</head><body>
+    <canvas id="scene"></canvas>
+    <button id="playButton" class="hidden">⏸ Pause</button>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+        );
+        const renderer = new THREE.WebGLRenderer({
+            canvas: document.getElementById("scene"),
+            antialias: true,
+        });       
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;       
+        camera.position.set(-1.9, 10, -24.4);        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load("sky.jpg", function (texture) {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            scene.background = texture;
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            scene.environment = pmremGenerator.fromEquirectangular(texture).texture;
+        });
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+        scene.add(ambientLight);        const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
+        directionalLight.position.set(15, 15, 15);
+        scene.add(directionalLight);        let textMesh = null;
+        let isAnimating = false;
+        const fontLoader = new THREE.FontLoader();
+        fontLoader.load('font.json', (loadedFont) => {
+            const textGeometry = new THREE.TextGeometry('Looping Forever!', {
+                font: loadedFont,
+                size: 3,
+                height: 0.5,
+                curveSegments: 12,
+                bevelEnabled: true,
+                bevelThickness: 0.03,
+                bevelSize: 0.02,
+                bevelSegments: 3,
+            });            const textMaterial = new THREE.MeshPhysicalMaterial({ color: 0x00ff00, metalness: 0.9, roughness: 0.1, transmission: 0.9, clearcoat: 1, clearcoatRoughness: 0.05 });
+            textMesh = new THREE.Mesh(textGeometry, textMaterial);
+            textMesh.position.set(15, 17, 5);
+            textMesh.rotation.y = Math.PI;
+            textMesh.visible = false;
+            scene.add(textMesh);
+        });        const loader = new THREE.GLTFLoader();
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath(
+            "https://cdn.jsdelivr.net/npm/three@0.128/examples/js/libs/draco/"
+        );
+        loader.setDRACOLoader(dracoLoader);        const greenSecret = new Map();
+        const targetMeshes = [
+            "FinalpolySurface43",
+            "FinalpolySurface42",
+            "FinalpolySurface3",
+            "FinalpolySurface25",
+            "FinalpolySurface49",
+        ];
+        function allMeshesGlowing() {
+            return targetMeshes.every((key) => greenSecret.get(key) === true);
+        }
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let model = null;
+       
+        loader.load(
+            "gltf/Daskom Compressed.gltf",
+            function (gltf) {
+                model = gltf.scene;
+                model.scale.set(0.3, 0.3, 0.3);
+                scene.add(model);               
+                const floatingIslands = [];
+                const floatingGroup = [];
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (
+                            child.name === "FinalpolySurface50" ||
+                            child.name === "FinalpolySurface1polySurface130023"
+                        ) {
+                            floatingGroup.push({
+                                mesh: child,
+                                initialY: child.position.y,
+                            });
+                        } else if (child.name === "Plane001") {
+                            const originalPosition = child.position.clone();
+                            child.geometry.computeBoundingBox();
+                            const center = child.geometry.boundingBox.getCenter(new THREE.Vector3());
+                            child.geometry.translate(-center.x, -center.y, -center.z);
+                            child.position.set(0, 25, 16);
+                            floatingIslands.push({
+                                mesh: child,
+                                baseY: child.position.y,
+                                phase: Math.random() * Math.PI * 2,
+                            });
+                        } else {
+                            floatingIslands.push({
+                                mesh: child,
+                                baseY: child.position.y,
+                                phase: Math.random() * Math.PI * 2,
+                            });
+                        }
+                    }
+                });               
+                const groupPhase = Math.random() * Math.PI * 2;               
+                function animate() {
+                    requestAnimationFrame(animate);                    const time = Date.now() * 0.001;                   
+                    floatingGroup.forEach((island) => {
+                        island.mesh.position.y =
+                            island.initialY + Math.sin(time + groupPhase);
+                    });                   
+                    floatingIslands.forEach((island) => {
+                        island.mesh.position.y =
+                            island.baseY + Math.sin(time + island.phase);
+                    });                    if (allMeshesGlowing()) {
+                        textMesh.visible = true;
+                        textMesh.position.y += Math.sin(time * 3) * 0.02;
+                        const planeMesh = model.getObjectByName("Plane001");
+                        planeMesh.rotateZ(0.1);
+                    }
+                    controls.update();
+                    renderer.render(scene, camera);
+                }                animate();
+            },
+            function (xhr) {
+                console.log((xhr.loaded / xhr.total) * 100 + "% loaded");
+            },
+            function (error) {
+                console.error("Error loading GLTF:", error);
+            }
+        );        const textSteps = ["o", "oo", "oo e", "oo ee", "oo ee a", "oo ee a e", "oo ee a e a"];
+        let currentStep = 0;        function createText(text) {
+            fontLoader.load('font.json', (loadedFont) => {
+                if (textMesh) scene.remove(textMesh);
+                const geometry = new THREE.TextGeometry(text, {
+                    font: loadedFont,
+                    size: 3,
+                    height: 0.5,
+                    curveSegments: 12,
+                    bevelEnabled: true,
+                    bevelThickness: 0.03,
+                    bevelSize: 0.02,
+                    bevelSegments: 3
+                });                const textMaterial = new THREE.MeshPhysicalMaterial({ color: 0x00ff00, metalness: 0.9, roughness: 0.1, transmission: 0.9, clearcoat: 1, clearcoatRoughness: 0.05 });
+                textMesh = new THREE.Mesh(geometry, textMaterial);
+                textMesh.position.set(8, 17, 5);
+                textMesh.rotation.y = Math.PI;
+                scene.add(textMesh);
+            });
+        }        let doneTextAnimation = false; 
+        function animateText() {
+            if (doneTextAnimation) return;
+            isAnimating = true;
+            currentStep = 0;            function stepAnimation() {
+                if (currentStep < textSteps.length) {
+                    createText(textSteps[currentStep]); 
+                    currentStep++;
+                    setTimeout(stepAnimation, 1000);
+                } else {
+                    doneTextAnimation = true;
+                    scene.add(videoPlane);
+                    document.getElementById("playButton").classList.remove('hidden');
+                    video.play();
+                    scene.background = null;
+                    renderer.setClearColor(0x000000, 1);
+                }
+            }            stepAnimation();
+        }        const video = document.createElement('video');
+        video.src = "video.mp4";
+        video.loop = true;
+        video.setAttribute("playsinline", "");
+        video.preload = "auto";
+        video.muted = false;
+        video.pause();       
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+        videoTexture.format = THREE.RGBFormat;       
+        const geometry = new THREE.PlaneGeometry(48, 27);
+        const material = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+        const videoPlane = new THREE.Mesh(geometry, material);
+        videoPlane.position.set(0, 25, 35);
+        videoPlane.rotation.y = Math.PI;        const playButton = document.getElementById("playButton");
+        playButton.addEventListener("click", () => {
+            if (video.paused) {
+                video.play();
+                playButton.textContent = "⏸ Pause";
+            } else {
+                video.pause();
+                playButton.textContent = "▶ Play";
+            }
+        });
+    
+        window.addEventListener("click", (event) => {
+           
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;           
+            raycaster.setFromCamera(pointer, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);           
+            if (intersects.length > 0) {
+                const clickedMesh = intersects[0].object;
+                if (clickedMesh.name === "Plane001") {
+                    if (allMeshesGlowing()) {
+                        if (!isAnimating) {
+                            animateText();
+                        }
+                    }
+                }
+               
+                if (targetMeshes.includes(clickedMesh.name)) {
+                    if (clickedMesh.material && "emissive" in clickedMesh.material) {
+                       
+                        if (!clickedMesh.hasOwnProperty("originalMaterial")) {
+                            clickedMesh.originalMaterial = clickedMesh.material;
+                            clickedMesh.material = clickedMesh.material.clone();
+                        }                        const originalEmissive = clickedMesh.material.emissive.getHex();
+                        const originalEmissiveIntensity = clickedMesh.material.emissiveIntensity;                        if (originalEmissive != 0xffffff) {
+                            greenSecret.set(clickedMesh.name, true);
+                        }                       
+                        let fadeStart = performance.now();
+                        function fadeOut() {
+                            let elapsed = performance.now() - fadeStart;
+                            let progress = Math.min(elapsed / 1000, 1);                           
+                            let fadeColor = new THREE.Color().lerpColors(
+                                new THREE.Color(0x00ff00),
+                                new THREE.Color(originalEmissive),
+                                progress
+                            );
+                            clickedMesh.material.emissive.set(fadeColor);                           
+                            clickedMesh.material.emissiveIntensity =
+                                1.5 - progress * (1.5 - originalEmissiveIntensity);                            if (progress < 1) {
+                                requestAnimationFrame(fadeOut);
+                            }
+                        }
+                        fadeOut();
+                    }
+                }
+            }
+        });        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body></html>
